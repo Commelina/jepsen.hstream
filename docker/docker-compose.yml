@@ -133,6 +133,7 @@ services:
     volumes:
       - "../:/home/Work"
       - "jepsen-shared:/var/jepsen/shared"
+      - "/home/commelina/.m2/:/root/.m2"
 
   hstore-1:
     << : *logdevice-node

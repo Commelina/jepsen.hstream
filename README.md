@@ -38,7 +38,7 @@ lein with-profile legacy-husky run serve
 ```
 - If you do not have `leiningen`:
 ```
-docker run -t --rm --network host -v $(pwd):/working clojure:temurin-21-lein /bin/bash -c "cd /working && lein with-profile legacy-husky run serve"
+docker run -t --rm --network host -v $(pwd):/working -v $HOME/.m2:/root/.m2 clojure:temurin-21-lein /bin/bash -c "cd /working && lein with-profile legacy-husky run serve"
 ```
 
 Then browse the results at `localhost:8080`.

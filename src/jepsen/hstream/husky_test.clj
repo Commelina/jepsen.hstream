@@ -3,7 +3,7 @@
             [jepsen [db :as db] [cli :as cli] [checker :as checker]
              [client :as client] [control :as c] [generator :as gen]
              [independent :as independent] [nemesis :as nemesis]
-             [tests :as tests]]
+             [tests :as tests] [net :as net]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.hstream.legacy.checker :as local-checker]
             [jepsen.hstream.legacy.client :refer :all]
@@ -11,8 +11,7 @@
             [jepsen.hstream.legacy.husky :as husky]
             [jepsen.hstream.common.mvar :refer :all]
             [jepsen.hstream.common.utils :refer :all]
-            [jepsen.hstream.legacy.nemesis :as local-nemesis]
-            [jepsen.hstream.common.net :as net+])
+            [jepsen.hstream.legacy.nemesis :as local-nemesis])
   (:import [jepsen.hstream.legacy.common Default-Client]))
 
 (defn hstream-test
@@ -27,7 +26,7 @@
       opts
       {:pure-generators true,
        :name "legacy-husky",
-       :net net+/iptables+,
+       :net net/iptables,
        :plot local-nemesis/plot-spec,
        :db (common/db-empty "0.19.0"),
        :client (common/Default-Client. opts

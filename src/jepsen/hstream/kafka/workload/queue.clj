@@ -131,6 +131,9 @@
                   [list-append :refer [rand-bg-color]]
                   [txn :as txn]
                   [util :refer [index-of]]]
+            [bifurcan-clj [core :as b]
+                          [graph :as bg]
+                          [set :as bs]]
             [gnuplot.core :as gnuplot]
             [hiccup.core :as h]
             [jepsen [checker :as checker]
@@ -2225,8 +2228,8 @@
   {:graph (if-not ww-deps
             ; We might ask not to infer ww dependencies, in which case this
             ; graph is empty.
-            (g/digraph)
-            (loopr [g (g/linear (g/digraph))]
+            (bg/digraph)
+            (loopr [g (b/linear (bg/digraph))]
                    [[k v->writer] writer-of ; For every key
                     [v2 op2] v->writer]     ; And very value written in that key
                    (let [version-order (get version-orders k)]
@@ -2240,7 +2243,7 @@
                                   :value  v1}))
                        ; This is the first value in the version order.
                        (recur g)))
-                   (g/forked g)))
+                   (b/forked g)))
    :explainer (if-not ww-deps
                 (NeverExplainer.)
                 (WWExplainer. writer-of version-orders))})
@@ -2269,14 +2272,14 @@
   "Analyzes a history to extract write-read dependencies. T1 < T2 iff T1 writes
   some v to k and T2 reads k."
   [{:keys [writer-of readers-of]} history]
-  {:graph (loopr [g (g/linear (g/digraph))]
+  {:graph (loopr [g (b/linear (bg/digraph))]
                  [[k v->readers] readers-of
                   [v readers]    v->readers]
                  (if-let [writer (-> writer-of (get k) (get v))]
                    (let [readers (remove #{writer} readers)]
                      (recur (g/link-to-all g writer readers :wr)))
                    (throw+ {:type :no-writer-of-value, :key k, :value v}))
-                 (g/forked g))
+                 (b/forked g))
    :explainer (WRExplainer. writer-of)})
 
 (defn graph

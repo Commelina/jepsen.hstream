@@ -9,12 +9,14 @@
     [["sonatype-snapshot"
       "https://s01.oss.sonatype.org/content/repositories/snapshots"]]
   :dependencies [[org.clojure/clojure "1.11.2"]
-                 [jepsen "0.2.7"]
+                 [jepsen "0.3.5"]
                  [cheshire "5.12.0"]
                  [clj-http "3.12.3"]
                  [random-string "0.1.0"]
                  [org.apache.kafka/kafka-clients "3.7.0"]
                  [io.grpc/grpc-stub "1.62.2"]
+                 ;;[org.apache.logging.log4j/log4j-slf4j-impl "2.23.1"]
+                 [org.slf4j/slf4j-api "2.0.12"]
                  [io.hstream/hstreamdb-java "0.17.0"
                   :exclusions [org.apache.logging.log4j/log4j-slf4j-impl]]
                  ]
