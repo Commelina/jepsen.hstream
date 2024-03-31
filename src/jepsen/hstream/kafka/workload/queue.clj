@@ -139,6 +139,7 @@
             [jepsen [checker :as checker]
                     [client :as client]
                     [generator :as gen]
+                    [history :as jh]
                     [store :as store]
                     [util :as util :refer [map-vals
                                            meh
@@ -2224,29 +2225,35 @@
 (defn ww-graph
   "Analyzes a history to extract write-write dependencies. T1 < T2 iff T1 sends
   some v1 to k and T2 sends some v2 to k and v1 < v2 in the version order."
-  [{:keys [writer-of version-orders ww-deps]} history]
-  {:graph (if-not ww-deps
-            ; We might ask not to infer ww dependencies, in which case this
-            ; graph is empty.
-            (bg/digraph)
-            (loopr [g (b/linear (bg/digraph))]
-                   [[k v->writer] writer-of ; For every key
-                    [v2 op2] v->writer]     ; And very value written in that key
-                   (let [version-order (get version-orders k)]
-                     (if-let [v1 (previous-value version-order v2)]
-                       (if-let [op1 (v->writer v1)]
-                         (if (= op1 op2)
-                           (recur g) ; No self-edges
-                           (recur (g/link g op1 op2 :ww)))
-                         (throw+ {:type   :no-writer-of-value
-                                  :key    k
-                                  :value  v1}))
-                       ; This is the first value in the version order.
-                       (recur g)))
-                   (b/forked g)))
-   :explainer (if-not ww-deps
-                (NeverExplainer.)
-                (WWExplainer. writer-of version-orders))})
+  [history1 history2]
+  (let [history (jh/as-maps history2)
+        writer-of (:writer-of history)
+        version-orders (:version-orders history)
+        ww-deps (:ww-deps history)]
+    ;;[{:keys [writer-of version-orders ww-deps]} history]
+    {:graph (if-not ww-deps
+                                        ; We might ask not to infer ww dependencies, in which case this
+                                        ; graph is empty.
+              (bg/digraph)
+              (loopr [g (b/linear (bg/digraph))]
+                     [[k v->writer] writer-of ; For every key
+                      [v2 op2] v->writer]     ; And very value written in that key
+                     (let [version-order (get version-orders k)]
+                       (if-let [v1 (previous-value version-order v2)]
+                         (if-let [op1 (v->writer v1)]
+                           (if (= op1 op2)
+                             (recur g) ; No self-edges
+                             (recur (g/link g op1 op2 :ww)))
+                           (throw+ {:type   :no-writer-of-value
+                                    :key    k
+                                    :value  v1}))
+                                        ; This is the first value in the version order.
+                         (recur g)))
+                     (b/forked g)))
+     :explainer (if-not ww-deps
+                  (NeverExplainer.)
+                  (WWExplainer. writer-of version-orders))}
+    ))
 
 (defrecord WRExplainer [writer-of]
   elle/DataExplainer
@@ -2271,16 +2278,21 @@
 (defn wr-graph
   "Analyzes a history to extract write-read dependencies. T1 < T2 iff T1 writes
   some v to k and T2 reads k."
-  [{:keys [writer-of readers-of]} history]
-  {:graph (loopr [g (b/linear (bg/digraph))]
-                 [[k v->readers] readers-of
-                  [v readers]    v->readers]
-                 (if-let [writer (-> writer-of (get k) (get v))]
-                   (let [readers (remove #{writer} readers)]
-                     (recur (g/link-to-all g writer readers :wr)))
-                   (throw+ {:type :no-writer-of-value, :key k, :value v}))
-                 (b/forked g))
-   :explainer (WRExplainer. writer-of)})
+  [history1 history2]
+  (let [history (jh/as-maps history2)
+        writer-of (:writer-of history)
+        readers-of (:readers-of history)]
+    ;;[{:keys [writer-of readers-of]} history]
+    {:graph (loopr [g (b/linear (bg/digraph))]
+                   [[k v->readers] readers-of
+                    [v readers]    v->readers]
+                   (if-let [writer (-> writer-of (get k) (get v))]
+                     (let [readers (remove #{writer} readers)]
+                       (recur (g/link-to-all g writer readers :wr)))
+                     (throw+ {:type :no-writer-of-value, :key k, :value v}))
+                   (b/forked g))
+     :explainer (WRExplainer. writer-of)}
+    ))
 
 (defn graph
   "A combined Elle dependency graph between completion operations."
@@ -2304,7 +2316,7 @@
           ; ops
           history  (->> history
                         (filter (comp #{:txn :poll :send} :f))
-                        vec)
+                        jh/history)
           analyzer (->> opts
                         txn/additional-graphs
                         (into [(partial graph analysis)])
@@ -2321,7 +2333,7 @@
   ([history]
    (analysis history {}))
   ([history opts]
-  (let [history               (history/index history)
+  (let [history               (history/index (jh/as-maps history))
         history               (remove (comp #{:nemesis} :process) history)
         writes-by-type        (future (writes-by-type history))
         reads-by-type         (future (reads-by-type history))
@@ -2506,17 +2518,23 @@
         ; Write out a file with consume counts
         (store/with-out-file test "consume-counts.edn"
           (pprint (consume-counts history)))
+        (info "===============")
+        ;;(info "errors:" errors)
+        (info "bad" bad-error-types)
+        ;;(info "analysis" analysis)
         ; Construct results
         (->> errors
-             (map (partial condense-error test))
-             (into (sorted-map))
-             (merge {:valid?             (empty? bad-error-types)
-                     :worst-realtime-lag (-> worst-realtime-lag
-                                             (update :time nanos->secs)
-                                             (update :lag nanos->secs))
-                     :bad-error-types    bad-error-types
-                     :error-types        (sort (keys errors))
-                     :info-txn-causes    info-txn-causes}))))))
+             ;;(map (partial condense-error test))
+             ;;(into (sorted-map))
+             (merge
+              {:valid?             (empty? bad-error-types)
+               :worst-realtime-lag (-> worst-realtime-lag
+                                       (update :time nanos->secs)
+                                       (update :lag nanos->secs))
+               :bad-error-types    bad-error-types
+               :error-types        (sort (keys errors))
+               :info-txn-causes    info-txn-causes}
+              ))))))
 
 (defn workload
   "Constructs a workload (a map with a generator, client, checker, etc) given

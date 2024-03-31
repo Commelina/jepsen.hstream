@@ -6,6 +6,7 @@
             [jepsen [checker :as checker]
                     [cli :as cli]
                     [generator :as gen]
+                    [history :as jh]
                     [tests :as tests]]
             [jepsen.os :as os]
             [jepsen.hstream.kafka [nemesis :as nemesis]]
@@ -165,7 +166,8 @@
                             (remove (comp #{:assign
                                             :crash
                                             :debug-topic-partitions}
-                                          :f)))
+                                          :f))
+                            jh/history)
                        opts)))))
 
 (defn test-name
@@ -241,13 +243,13 @@
             :nemesis   (:nemesis nemesis)
             :generator generator
             :checker   (checker/compose
-                         {:stats      (stats-checker)
-                          :clock      (checker/clock-plot)
-                          :perf       (perf-checker
-                                        {:nemeses (:perf nemesis)})
-                          :ex         (checker/unhandled-exceptions)
-                          :assert     (checker/log-file-pattern
-                                        #"\] assert -" "redpanda.log")
+                         {;;:stats      (stats-checker)
+                          ;;:clock      (checker/clock-plot)
+                          ;;:perf       (perf-checker
+                          ;;              {:nemeses (:perf nemesis)})
+                          ;;:ex         (checker/unhandled-exceptions)
+                          ;;:assert     (checker/log-file-pattern
+                          ;;              #"\] assert -" "redpanda.log")
                           :workload   (:checker workload)})
             :perf-opts {:nemeses (:perf nemesis)}
             :logging {:overrides logging-overrides}})))

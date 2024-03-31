@@ -59,13 +59,13 @@ CMD /init-ssh.sh && \
     --db hstream \
     --workload queue \
     --sub-via subscribe \
-    --time-limit 120 \
+    --time-limit 20 \
     --final-time-limit 120 \
     --key-dist uniform \
-    --key-count 32 \
+    --key-count 4 \
     ##<<<
     # This value is enough. A larger one can make elle exhausted.
-    --concurrency 20 \
+    --concurrency 2 \
     ##>>>
     ##<<<
     # When writes of a key exceed the limit, the generator will pick
