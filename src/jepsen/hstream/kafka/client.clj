@@ -6,7 +6,8 @@
                                           map-vals
                                           pprint-str]]
             [slingshot.slingshot :refer [try+ throw+]])
-  (:import (java.time Duration)
+  (:import (java.nio ByteBuffer)
+           (java.time Duration)
            (java.util Properties)
            (java.util.concurrent ExecutionException)
            (org.apache.kafka.clients.admin Admin
@@ -67,7 +68,8 @@
      "org.apache.kafka.common.serialization.LongDeserializer"
 
      ConsumerConfig/VALUE_DESERIALIZER_CLASS_CONFIG
-     "org.apache.kafka.common.serialization.LongDeserializer"
+     ;"org.apache.kafka.common.serialization.LongDeserializer"
+     "org.apache.kafka.common.serialization.ByteArrayDeserializer"
 
      ConsumerConfig/BOOTSTRAP_SERVERS_CONFIG
      (str node ":" port)
@@ -128,7 +130,8 @@
 
            ProducerConfig/VALUE_SERIALIZER_CLASS_CONFIG
            ;"org.apache.kafka.common.serialization.StringSerializer"
-           "org.apache.kafka.common.serialization.LongSerializer"
+           ;"org.apache.kafka.common.serialization.LongSerializer"
+           "org.apache.kafka.common.serialization.ByteArraySerializer"
 
            ProducerConfig/DELIVERY_TIMEOUT_MS_CONFIG 10000
            ; We choose this lower than DELIVERY_TIMEOUT_MS so that we have a
@@ -145,6 +148,8 @@
            ProducerConfig/SOCKET_CONNECTION_SETUP_TIMEOUT_MS_CONFIG 500
            ProducerConfig/SOCKET_CONNECTION_SETUP_TIMEOUT_MAX_MS_CONFIG 1000
 
+           ;;
+           ProducerConfig/LINGER_MS_CONFIG 6000
            }
     (not= nil (:acks opts))
     (assoc ProducerConfig/ACKS_CONFIG (:acks opts))
@@ -253,10 +258,25 @@
   [topic partition]
   (TopicPartition. topic partition))
 
+;;;;;;;;;;;;;;;;
+(defn long-to-bytes [n]
+  (let [buffer (ByteBuffer/allocate (Long/BYTES))]
+    (.putLong buffer n)
+    (.array buffer)))
+
+(defn bytes-to-long [byte-array]
+  (let [buffer (ByteBuffer/wrap byte-array)]
+    (.getLong buffer)))
+;;;;;;;;;;;;;;;;
+
 (defn ^ProducerRecord producer-record
   "Constructs a ProducerRecord from a topic, partition, key, and value."
   [topic partition key value]
-  (ProducerRecord. topic (int partition) key value))
+  (let [extra-bytes-len (* 1 1024)
+        value-bytes (long-to-bytes value)
+        extra-bytes (byte-array extra-bytes-len (byte \A))
+        value-to-write (byte-array (+ extra-bytes-len 8) (concat value-bytes extra-bytes))]
+    (ProducerRecord. topic (int partition) key value-to-write)))
 
 (defn ^OffsetAndMetadata offset+metadata
   "Constructs an OffsetAndMetadata."
@@ -269,6 +289,47 @@
    (.subscribe consumer topics))
   ([^KafkaConsumer consumer, topics, rebalance-listener]
    (.subscribe consumer topics rebalance-listener)))
+
+(defn extract-value-from-consumer-record
+  [consumer-record]
+  (let [topic               (.topic consumer-record)
+        partition           (.partition consumer-record)
+        offset              (.offset consumer-record)
+        timestamp           (.timestamp consumer-record)
+        timestampType       (.timestampType consumer-record)
+        serializedKeySize   (.serializedKeySize consumer-record)
+        serializedValueSize (.serializedValueSize consumer-record)
+        key                 (.key consumer-record)
+        value               (.value consumer-record)
+        headers             (.headers consumer-record)
+        leaderEpoch         (.leaderEpoch consumer-record)
+        actual-value (bytes-to-long (byte-array (take 8 value)))]
+    (ConsumerRecord. topic partition offset timestamp timestampType serializedKeySize serializedValueSize key actual-value headers leaderEpoch)))
+
+;; FIXME: shit
+(defn modify-list-elements [java-list f]
+  (if (nil? java-list)
+    (java.util.ArrayList.)
+    (if (= 0 (.size java-list))
+      java-list
+      (let [new-list (java.util.ArrayList. (.size java-list))]
+        (dotimes [i (.size java-list)]
+          (let [element (.get java-list i)
+                new-element (f element)]
+            (.add new-list i new-element)))
+        new-list))))
+
+;; remove extra bytes
+(defn recover-consumer-records
+  [consumer-records]
+  (let [new-map (java.util.HashMap.)
+        tp-set (.partitions consumer-records)
+        _ (doseq [tp (seq tp-set)]
+            (let [lst (.records consumer-records tp)
+                  lst (modify-list-elements lst
+                                            extract-value-from-consumer-record)]
+              (.put new-map tp lst)))]
+    (ConsumerRecords. new-map)))
 
 (defn poll-up-to
   "Takes a consumer, and polls it (with duration 0) for records up to and
@@ -295,6 +356,7 @@
    ; immediately.
    (when (pos? offset)
      (let [records     (.poll consumer duration)
+           records     (recover-consumer-records records)
            records     (vec records)
            last-record ^ConsumerRecord (peek records)]
        ;(info :poll-through-records offset records)

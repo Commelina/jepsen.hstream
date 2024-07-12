@@ -220,7 +220,8 @@
   (case (first mop)
     :poll (try
             (rc/unwrap-errors
-              (let [records (.poll consumer (rc/ms->duration poll-ms))]
+             (let [records (.poll consumer (rc/ms->duration poll-ms))
+                   records (rc/recover-consumer-records records)]
                 (->> (.partitions records)
                      (map (fn per-topic-partition [topic-partition]
                             ; Return a key, messages pair
